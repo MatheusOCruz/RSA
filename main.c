@@ -286,18 +286,24 @@ void OAEP_encode(const char* M, char* EM, u8* Parameter, int emLen){
 
 
 }
-void RSA_OAEP_encrypt(char *message, char*ciphertext ,mpz_t n, mpz_t e, u8* parameter){
+
+u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *count){
     int k;
-    char* enc_message;
-    k = strlen(message) + 3072; // valor randon da vida
-    OAEP_encode(message, enc_message, parameter,k-8); // -1 byte
+    u8 *enc_message[256];
+
+    OAEP_encode(message, enc_message, parameter,256);
 
 
     mpz_t m, c;
     mpz_inits(m,c,NULL);
 
     // converter EM para um numero m
-    size_t str_len = strlen(enc_message);
+    size_t str_len = 256;
+    printf("mensagem que sai do encode:");
+    for (int i = 0; i < 256; ++i) {
+        printf("%x",enc_message[i]);
+    }
+    printf("\n");
     mpz_import(m, str_len, 1, 1, 0, 0, enc_message);
 
     mpz_powm(c, m, e, n); // C = rsa M (e,n)
@@ -306,12 +312,14 @@ void RSA_OAEP_encrypt(char *message, char*ciphertext ,mpz_t n, mpz_t e, u8* para
     // padding em c para sempre ser 2048 bits
     // como padding e 0 ele vai pro beleleu quando virar numero pra voltar na funcao e da no mesmo eeeee
     // c -> ciphertext as number
-
+    gmp_printf("com rsa antes do export: %Zx\n",c);
     // mpz_export ... nao sei fazer esse trem ainda
-
-
-
     mpz_clear(m);
+    return (u8 *) mpz_export(NULL, count, 1,1,0,0,c);
+
+
+
+
     // dps tem q dar um jeito em c tmb
 } // pronta?
 
@@ -398,7 +406,20 @@ void OAEP_decode(const char *EM, u8 *Parameter){
 
 
 }
-void RSA_OAEP_decrypt(char* ciphertext, char*message, mpz_t n, mpz_t d, u8* Parameter){
+void RSA_OAEP_decrypt(char* ciphertext, mpz_t n, mpz_t d, u8* Parameter){
+    mpz_t c,m;
+    mpz_inits(c,m,NULL);
+    mpz_import(c, 2048, 1, 1, 0, 0, ciphertext);
+    mpz_powm(m, c, d, n);
+    size_t count;
+    u8* message = mpz_export(NULL, &count, 1, sizeof(u8), 0, 0, m); // por enquanto em blocos de 256
+    printf("tamanho msg: %d\nmensagem que chega pro decode:",count);
+    for (int i = 0; i < count; ++i) {
+        printf("%x",message[i]);
+    }
+    printf("\n");
+    // export do M para message
+    OAEP_decode(message, Parameter);
 
 }
 
@@ -446,34 +467,28 @@ int main() {
     // chave privada = (d, n) chave publica = (e, n)
     mpz_t e,d,n;
     mpz_inits(e,d,n,NULL);
-    //RSA_init_keys(e, d, n);
-
-    // teste com o valor 0x1234
-
-
-
-    mpz_t teste;
-    mpz_init(teste);
-
-
-    /*
-    printf("%d\n",mpz_sizeinbase(n,2));
-    char* resultStr = mpz_get_str(NULL, 16, n);
-    printf("%d", strlen(resultStr)*4);
-    */
-
-
+    RSA_init_keys(e, d, n);
 
     // calculo de hash de mensagem em claro
     u8 digest[64];
     char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt";
     hash_file_sha3(file_path, digest);
 
-    char aa[256];
-    OAEP_encode("suco de fruta com tamarindo", aa, digest, 256);
 
+    size_t count;
+    u8 *aa =  RSA_OAEP_encrypt("suco de fruta com tamaridno",  n, e, digest, &count);
+    printf("com rsa:                ");
+    printf("%2x", aa[0]);
 
-    OAEP_decode(aa, digest);
+    for (int i = 1; i < count; ++i) {
+        printf("%02x", aa[i]);
+    }
+
+    printf("\n");
+    printf("tamanho: %d",count);
+    printf("\n");
+    //OAEP_decode(aa, digest);
+    RSA_OAEP_decrypt(aa, n, d, digest);
 
 
     return 0;
