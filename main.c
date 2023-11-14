@@ -2,10 +2,9 @@
 #include <gmp.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <sodium.h>
-#include "AES.h"
 #include <openssl/evp.h>
+#include <math.h>
 
 #define true  1
 #define false 0
@@ -58,19 +57,16 @@ int Miller_Rabin_test(mpz_t prime_canditate){
     // aqui temos k e r(p_sub1)
 
     // a quantidade de 'a' escolhido seria um parametro de seguranca
-    // quanto mais vezes o teste e feito maior a prob (testar com 10 so)
+
 
     u8 a_gen[128];
     mpz_t a;
     mpz_init(a);
 
-    for (int i = 0; i <5; ++i) {
+    for (int i = 0; i <40; ++i) {
         randombytes(a_gen,128);
-
         mpz_import(a,128,1,1,0,0,a_gen); // converte para o tipo magico
-
         // a entre 2 e p-2 -> (a mod p-3) + 2
-
         mpz_sub_ui (results,prime_canditate,3);
         mpz_mod(a,a,results);
         mpz_add_ui(a,a,2);  // a entre 2 e p-2
@@ -78,7 +74,6 @@ int Miller_Rabin_test(mpz_t prime_canditate){
         mpz_powm(results,a,r,prime_canditate);  // a^r mod p
 
         if (mpz_cmp_ui(results,1) == 0) return 1; // a^p-1 mod n == 1
-
     // testar para 0 a n-1
         for (u64 j = 0; j < k; ++j) {
             // a ^ (2^j) * r
@@ -101,13 +96,7 @@ int Miller_Rabin_test(mpz_t prime_canditate){
 
                 return false;
             }
-
-
-
-
         }
-
-
     }
 
     //  se o numero nao der como composto em nenhum teste
@@ -178,27 +167,27 @@ void sha3(u8 *message, u8 *digest){
 }
 
 void MGF(u8* seed, u8* mask,int len, int seedLen){
-    printf("seed: ");
-    for (int i = 0; i < seedLen; ++i) {
-        printf("%x", seed[i]);
-    }
-    printf("\n");
-    
+
     u8 seed_concat[seedLen + 4];
     u8 digest[64];
     memcpy(seed_concat,seed, seedLen);
-    for (int i = 0; i < len/64; ++i) {
-        for (int j = 0; j < 4; j++) {
+
+    int i,j;
+    for ( i = 0; i < ceil(len/64); ++i) {
+        for (j = 0; j < 4; j++) {
             seed_concat[seedLen + j] = (i >> ((3 - j) * 8)) & 0xFF;
         }
         sha3(seed_concat,digest);
         memcpy(mask + (i*64),digest, 64);
     }
-    printf("mask: ");
-    for (int i = 0; i < len; ++i) {
-        printf("%x", mask[i]);
+    if (i*64 != len) {
+        for (j = 0; j < 4; j++) {
+            seed_concat[seedLen + j] = (i >> ((3 - j) * 8)) & 0xFF;
+        }
+        sha3(seed_concat,digest);
+        memcpy(mask + (i*64),digest, len-i*64);
     }
-    printf("\n");
+
 }
 
 // talvez o parametro seja a chave do aes
@@ -211,7 +200,6 @@ void MGF(u8* seed, u8* mask,int len, int seedLen){
 // teoricamente o oaep ta pronto
 
 void OAEP_encode(const char* M, char* EM, u8* Parameter, int emLen){
-
     size_t mLen = strlen(M);
     const size_t hash_len = 64; //sha-3 512
     size_t PS_len = emLen - (mLen + 2*hash_len + 1);
@@ -222,22 +210,11 @@ void OAEP_encode(const char* M, char* EM, u8* Parameter, int emLen){
         return;
     }
 
-
     u8 PS[PS_len]; memset(PS,0,PS_len); //padding
-
 
     u8 Phash[hash_len];
 
-
     sha3(Parameter, Phash);
-
-    printf("Phash:");
-    for(int i = 0; i < hash_len; ++i) {
-        printf("%x",Phash[i]);
-    }
-
-    printf("\n");
-
 
     u8 DB[hash_len + PS_len + 1 + mLen]; // phash || PS ||01 || M
     memcpy(DB, Phash, hash_len);
@@ -250,32 +227,10 @@ void OAEP_encode(const char* M, char* EM, u8* Parameter, int emLen){
 
     //gera DB = DB masked
     u8 dbMask[emLen - hash_len]; MGF(seed, dbMask, emLen - hash_len, hash_len); // Db mask
-    printf("DB enc:");
-    for (int i = 0; i < emLen - hash_len; ++i) {
-        printf("%x", DB[i]);
-    }
-    printf("\n");
-
-    printf("DB mask:");
-    for (int i = 0; i < emLen - hash_len; ++i) {
-        printf("%x", dbMask[i]);
-    }
-    printf("\n");
 
     for (int i = 0; i < (emLen - hash_len); ++i) DB[i]^=dbMask[i]; // DB = masked DB
-    printf("DB after mask:");
-    for (int i = 0; i < emLen - hash_len; ++i) {
-        printf("%x", DB[i]);
-    }
-    printf("\n");
-    // seed = masked seed
-    u8 seedMask[hash_len]; MGF(DB, seedMask, hash_len, hash_len); // seed mask
 
-    printf("seed mask:");
-    for (int i = 0; i < hash_len; ++i) {
-        printf("%x",seedMask[i]);
-    }
-    printf("\n");
+    u8 seedMask[hash_len]; MGF(DB, seedMask, hash_len, hash_len); // seed mask
 
     for (int i = 0; i < hash_len; ++i) seed[i] ^= seedMask[i]; // seed = masked seed
 
@@ -288,39 +243,14 @@ void OAEP_encode(const char* M, char* EM, u8* Parameter, int emLen){
 }
 
 u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *count){
-    int k;
-    u8 *enc_message[256];
+    mpz_t c;
+    mpz_init(c);
+    u8 enc_message[224];
+    OAEP_encode(message, enc_message, parameter,224);
+    mpz_import(c,224,1,1,0,0,enc_message);
+    mpz_powm(c,c,e,n);
+    return (u8 *) mpz_export(NULL,count, 1,1,0,0,c);
 
-    OAEP_encode(message, enc_message, parameter,256);
-
-
-    mpz_t m, c;
-    mpz_inits(m,c,NULL);
-
-    // converter EM para um numero m
-    size_t str_len = 256;
-    printf("mensagem que sai do encode:");
-    for (int i = 0; i < 256; ++i) {
-        printf("%x",enc_message[i]);
-    }
-    printf("\n");
-    mpz_import(m, str_len, 1, 1, 0, 0, enc_message);
-
-    mpz_powm(c, m, e, n); // C = rsa M (e,n)
-
-    // c lenght <= 2048 bits ja q n <= 2048
-    // padding em c para sempre ser 2048 bits
-    // como padding e 0 ele vai pro beleleu quando virar numero pra voltar na funcao e da no mesmo eeeee
-    // c -> ciphertext as number
-    gmp_printf("com rsa antes do export: %Zx\n",c);
-    // mpz_export ... nao sei fazer esse trem ainda
-    mpz_clear(m);
-    return (u8 *) mpz_export(NULL, count, 1,1,0,0,c);
-
-
-
-
-    // dps tem q dar um jeito em c tmb
 } // pronta?
 
 // ###############################################
@@ -329,95 +259,78 @@ u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *cou
 // len em >= 2hlen+1 -> 123
 
 
-void OAEP_decode(const char *EM, u8 *Parameter){
-    size_t emLen = 256;
-    const size_t hash_len = 64; //sha-3 512
-    size_t db_len = emLen-hash_len;
-    if (emLen <= hash_len + 1) printf("decoding error: size\n");
+    void OAEP_decode(const char *EM, u8 *Parameter){
+        size_t emLen = 224;
+        const size_t hash_len = 64; //sha-3 512
+        size_t db_len = emLen-hash_len;
+        if (emLen <= hash_len + 1) printf("decoding error: size\n");
 
-    u8 maskedSeed[hash_len], maskedDB[db_len];
-    memcpy(maskedSeed,EM, hash_len);
-    memcpy(maskedDB,EM+hash_len, emLen-hash_len);
+        u8 maskedSeed[hash_len], maskedDB[db_len];
+        memcpy(maskedSeed,EM, hash_len);
+        memcpy(maskedDB,EM+hash_len, emLen-hash_len);
 
+        u8 seedMask[hash_len], dbMask[db_len];
+        // restaura seed
+        MGF(maskedDB,seedMask,hash_len, db_len);
 
-    printf("DB masked decode:");
-    for (int i = 0; i < db_len; ++i) {
-        printf("%x", maskedDB[i]);
-    }
-    printf("\n");
+        for (int i = 0; i < hash_len; ++i) maskedSeed[i] ^= seedMask[i];
+        // restaura DB
+        MGF(maskedSeed, dbMask,db_len, hash_len);
+        for (int i = 0; i < db_len; ++i) maskedDB[i] ^= dbMask[i];
 
+        u8 Phash[hash_len]; sha3(Parameter, Phash);
 
-    u8 seedMask[hash_len], dbMask[db_len];
-    // restaura seed
-    MGF(maskedDB,seedMask,hash_len, db_len);
+        // DB PARTS phash || PS ||01 || M
 
-    printf("seed mask:");
-    for (int i = 0; i < hash_len; ++i) {
-        printf("%x",seedMask[i]);
-    }
-    printf("\n");
-
-    for (int i = 0; i < hash_len; ++i) maskedSeed[i] ^= seedMask[i];
-
-    // restaura DB
-    MGF(maskedSeed, dbMask,db_len, hash_len);
-    for (int i = 0; i < db_len; ++i) maskedDB[i] ^= dbMask[i];
-
-    u8 Phash[hash_len]; sha3(Parameter, Phash);
-
-    printf("Phash no decode:");
-    for(int i = 0; i < hash_len; ++i) {
-        printf("%x",Phash[i]);
-    }
-
-    printf("\n");
-
-    // DB PARTS phash || PS ||01 || M
-
-    // checa de se o Phash ta igual
-    for (int i = 0; i < hash_len; ++i) {
-        if (maskedDB[i] != Phash[i] ){
-            printf("decoding error: Phash\n ");
-            return;
+        // checa de se o Phash ta igual
+        for (int i = 0; i < hash_len; ++i) {
+            if (maskedDB[i] != Phash[i] ){
+                printf("decoding error: Phash\n ");
+                return;
+            }
         }
-    }
 
-    //mesmo phash, agr e pra achar o comeco da msg
-    int m_start = 0;
-    for (int i = hash_len; i < db_len; ++i) {
-        if (maskedDB[i] == 0x01) {
-            m_start = i+1;
-            break;
+        //mesmo phash, agr e pra achar o comeco da msg
+        int m_start = 0;
+        for (int i = hash_len; i < db_len; ++i) {
+            if (maskedDB[i] == 0x01) {
+                m_start = i+1;
+                break;
+            }
+            else if(maskedDB[i] != 0x00){
+                printf("decoding error: PS\n");
+                return;
+            }
         }
-        else if(maskedDB[i] != 0x00){
-            printf("decoding error: PS\n");
-            return;
+        size_t mLen = db_len - m_start;
+        u8 message[mLen];
+        memcpy(message, maskedDB+m_start, mLen);
+
+        for (int i = 0; i < mLen; ++i) {
+            printf("%c",message[i]);
         }
+
+
+
+
+
     }
-    size_t mLen = db_len - m_start;
-    u8 message[mLen];
-    memcpy(message, maskedDB+m_start, mLen);
+    void RSA_OAEP_decrypt(u8 *ciphertext, mpz_t n, mpz_t d, u8* Parameter, size_t count_cipher){
+        mpz_t c;
+        mpz_init(c);
 
-    for (int i = 0; i < mLen; ++i) {
-        printf("%c", message[i]);
-    }
+        mpz_import(c,count_cipher, 1, 1, 0, 0, ciphertext);
 
-
+        mpz_powm(c,c,d,n);
 
 
-}
-void RSA_OAEP_decrypt(char* ciphertext, mpz_t n, mpz_t d, u8* Parameter){
-    mpz_t c,m;
-    mpz_inits(c,m,NULL);
-    mpz_import(c, 2048, 1, 1, 0, 0, ciphertext);
-    mpz_powm(m, c, d, n);
-    size_t count;
-    u8* message = mpz_export(NULL, &count, 1, sizeof(u8), 0, 0, m); // por enquanto em blocos de 256
-    printf("tamanho msg: %d\nmensagem que chega pro decode:",count);
-    for (int i = 0; i < count; ++i) {
-        printf("%x",message[i]);
-    }
-    printf("\n");
+        size_t count;
+
+
+        u8 *message = (u8 *) mpz_export(NULL, &count, 1,1,0,0,c);
+
+
+
     // export do M para message
     OAEP_decode(message, Parameter);
 
@@ -456,8 +369,6 @@ void hash_file_sha3(char *file_path, u8 *digest){
 
 int main() {
 
-
-
     if (sodium_init() < 0) {
         // Falha na inicialização da biblioteca
         fprintf(stderr, "Erro na inicialização do libsodium\n");
@@ -466,7 +377,7 @@ int main() {
 
     // chave privada = (d, n) chave publica = (e, n)
     mpz_t e,d,n;
-    mpz_inits(e,d,n,NULL);
+    mpz_inits(e,d,n, NULL);
     RSA_init_keys(e, d, n);
 
     // calculo de hash de mensagem em claro
@@ -476,20 +387,15 @@ int main() {
 
 
     size_t count;
-    u8 *aa =  RSA_OAEP_encrypt("suco de fruta com tamaridno",  n, e, digest, &count);
-    printf("com rsa:                ");
-    printf("%2x", aa[0]);
-
+    u8 *aaa =  RSA_OAEP_encrypt("suco de fruta com tamaridno",  n, e, digest, &count);
+    printf("com rsa:");
+    printf("%x", aaa[0]);
     for (int i = 1; i < count; ++i) {
-        printf("%02x", aa[i]);
+    printf("%02x", aaa[i]);
     }
+printf("\n");
 
-    printf("\n");
-    printf("tamanho: %d",count);
-    printf("\n");
-    //OAEP_decode(aa, digest);
-    RSA_OAEP_decrypt(aa, n, d, digest);
-
+RSA_OAEP_decrypt(aaa, n, d, digest, count);
 
     return 0;
 }
