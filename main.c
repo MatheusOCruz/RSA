@@ -259,7 +259,7 @@ u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *cou
 // len em >= 2hlen+1 -> 123
 
 
-    void OAEP_decode(const char *EM, u8 *Parameter){
+    u8* OAEP_decode(const char *EM,  u8 *Parameter){
         size_t emLen = 224;
         const size_t hash_len = 64; //sha-3 512
         size_t db_len = emLen-hash_len;
@@ -286,7 +286,7 @@ u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *cou
         for (int i = 0; i < hash_len; ++i) {
             if (maskedDB[i] != Phash[i] ){
                 printf("decoding error: Phash\n ");
-                return;
+                return NULL;
             }
         }
 
@@ -299,44 +299,30 @@ u8* RSA_OAEP_encrypt(char *message ,mpz_t n, mpz_t e, u8* parameter, size_t *cou
             }
             else if(maskedDB[i] != 0x00){
                 printf("decoding error: PS\n");
-                return;
+                return NULL;
             }
         }
         size_t mLen = db_len - m_start;
-        u8 message[mLen];
+        u8 *message = malloc(mLen);
         memcpy(message, maskedDB+m_start, mLen);
 
-        for (int i = 0; i < mLen; ++i) {
-            printf("%c",message[i]);
-        }
-
-
-
-
-
+        return message;
     }
-    void RSA_OAEP_decrypt(u8 *ciphertext, mpz_t n, mpz_t d, u8* Parameter, size_t count_cipher){
+
+    u8* RSA_OAEP_decrypt(u8 *ciphertext, mpz_t n, mpz_t d, u8* Parameter, size_t count_cipher){
         mpz_t c;
         mpz_init(c);
 
         mpz_import(c,count_cipher, 1, 1, 0, 0, ciphertext);
-
         mpz_powm(c,c,d,n);
 
-
         size_t count;
-
-
         u8 *message = (u8 *) mpz_export(NULL, &count, 1,1,0,0,c);
 
-
-
     // export do M para message
-    OAEP_decode(message, Parameter);
+        return OAEP_decode(message, Parameter);
 
 }
-
-
 
 //################################################
 void hash_file_sha3(char *file_path, u8 *digest){
@@ -364,14 +350,62 @@ void hash_file_sha3(char *file_path, u8 *digest){
     fclose(file);
 }
 
+// ################################################
 
+
+// assinatura e verificacao de assinatura RSA
+
+u8* RSA_sign(char *file_path, mpz_t d, mpz_t n){
+    mpz_t t;
+    mpz_init(t);
+    u8 digest[64];
+    hash_file_sha3(file_path, digest);
+    mpz_import(t,64,1,1,0,0,digest);
+    // n sei oq seria o parametro ent na duvida vai uns 0
+    u8 parameter[64];
+    memset(parameter, 0, 64);
+    size_t ciphertext_len;
+    u8* ciphertext = RSA_OAEP_encrypt(digest,n,d,parameter,&ciphertext_len);
+    u8 *full_msg = malloc(sizeof(ciphertext_len) + ciphertext_len);
+    memcpy(full_msg, &ciphertext_len, sizeof(ciphertext_len));
+    memcpy(full_msg+sizeof(ciphertext_len), ciphertext, ciphertext_len);
+    return full_msg;
+
+}
+
+int RSA_verify(char* file_path,u8* full_msg, mpz_t n, mpz_t e){
+
+    size_t ciphertext_len;
+    memcpy(&ciphertext_len, full_msg, sizeof(ciphertext_len));
+    u8 ciphertext[ciphertext_len];
+    memcpy(ciphertext, full_msg+ sizeof(ciphertext_len),ciphertext_len);
+    u8 Parameter[64];
+    memset(Parameter, 0, 64);
+    u8 *received_hash = RSA_OAEP_decrypt(ciphertext, n, e, Parameter, ciphertext_len);
+    u8 hash[64];
+    hash_file_sha3(file_path, hash);
+    for (int i = 0; i < 64; ++i) {
+        if (hash[i] != received_hash[i]){
+            printf("tem uma cobra na minha bota!\n");
+            free(received_hash);
+            return false;
+        }
+    }
+    free(received_hash);
+    return true;
+}
+
+// na teoria isso aqui ja foi
+// ##################################################
+
+// agr o trem base64
 
 
 int main() {
 
     if (sodium_init() < 0) {
         // Falha na inicialização da biblioteca
-        fprintf(stderr, "Erro na inicialização do libsodium\n");
+        printf("Erro na inicialização do libsodium\n");
         exit(EXIT_FAILURE);
     } // gerador de numero aleatorio
 
@@ -381,7 +415,7 @@ int main() {
     RSA_init_keys(e, d, n);
 
     // calculo de hash de mensagem em claro
-    u8 digest[64];
+    /*u8 digest[64];
     char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt";
     hash_file_sha3(file_path, digest);
 
@@ -395,7 +429,10 @@ int main() {
     }
 printf("\n");
 
-RSA_OAEP_decrypt(aaa, n, d, digest, count);
+RSA_OAEP_decrypt(aaa, n, d, digest, count);*/
+    char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt";
+    u8* sign = RSA_sign(file_path, d, n);
+    if (RSA_verify(file_path, sign, n, e)) printf("um milagre de natal!");
 
     return 0;
 }
