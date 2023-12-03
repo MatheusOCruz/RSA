@@ -5,6 +5,8 @@
 #include <sodium.h>
 #include <openssl/evp.h>
 #include <math.h>
+#include <unistd.h>
+
 
 #define true  1
 #define false 0
@@ -373,7 +375,7 @@ char* BASE64_decode(char* input, size_t input_size, size_t *output_size){
 
 // assinatura e verificacao de assinatura RSA
 
-u8* RSA_sign(char *file_path, mpz_t d, mpz_t n){
+u8* RSA_sign(char *file_path, mpz_t n, mpz_t d){
     mpz_t t;
     mpz_init(t);
     u8 digest[64];
@@ -438,21 +440,36 @@ int main() {
     mpz_t e,d,n;
     mpz_inits(e,d,n, NULL);
     RSA_init_keys(e, d, n);
-    char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt"; //trocar pelo path do arquivo
-    u8* sign = RSA_sign(file_path, d, n); // assina com chave privada (d,n)
-    if (RSA_verify(file_path, sign, n, e)) printf("um milagre de natal!\n");
-    size_t l;
-    char* a = BASE64_encode("eu gosto de suco de frutac",26, &l);
-    for (int i = 0; i < l; ++i) {
-        printf("%c", a[i]);
+
+
+
+//    char file_path[PATH_MAX];
+//    getcwd(file_path, sizeof(file_path));
+//    strcat(file_path,"/");
+//
+//    printf("insira o nome do arquivo:");
+//    char file_name[50];
+//    fgets(file_name, sizeof(file_name), stdin);
+//    size_t len = strlen(file_name);
+//    if (len > 0 && file_name[len - 1] == '\n') {
+//        file_name[len - 1] = '\0';
+//    }
+//    strcat(file_path,file_name);
+
+    gmp_printf("chaves geradas,\n n:%Zx\ne:%Zx\nd:%Zx\n",n,e,d);
+    printf("chave publica : (e,n)\nchave privada: (d,n)\n");
+
+    char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt";
+    u8* sign = RSA_sign(file_path, n,d); // assina com chave privada (d,n)
+    size_t message_len;
+    memcpy(&message_len, sign, sizeof(message_len));
+    printf("assinatura gerada para o arquivo:");
+    for (int i = 0; i < (int)(message_len+ sizeof(message_len)); ++i) {
+        printf("%x",sign[i]);
     }
     printf("\n");
-    size_t j;
-    char* b = BASE64_decode(a, l, &j);
 
-    for (int i = 0; i < j; ++i) {
-        printf("%c",b[i]);
-    }
+    if (RSA_verify(file_path, sign, n, e)) printf("assinatura verificada\n");
 
 
     return 0;
