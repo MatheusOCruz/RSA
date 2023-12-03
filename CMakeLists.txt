@@ -9,9 +9,7 @@ find_package(OpenSSL REQUIRED)
 
 set(CMAKE_C_STANDARD 11)
 
-add_executable(RSA main.c
-        EAS.c
-        AES.h)
+add_executable(RSA main.c)
 
 # Adicione OpenSSL::Crypto para linkar a biblioteca OpenSSL
 target_link_libraries(RSA ${GMP_LIB} ${LIBSODIUM_LIB} OpenSSL::Crypto)
