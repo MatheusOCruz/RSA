@@ -469,15 +469,8 @@ int main() {
     char filename[30];
     scanf("%s",filename);
 
-    // Caminho completo
-    char full_path[FILENAME_MAX];
+    
     snprintf(file_path, FILENAME_MAX, "%s/%s", current_directory, filename);
-    printf("%s\n",full_path);
-    // Abre o arquivo
-    FILE *arquivo = fopen(full_path, "r");
-
-
-
 
 
     u8* sign = RSA_sign(file_path, n,d); // assina com chave privada (d,n)
