@@ -459,7 +459,27 @@ int main() {
     gmp_printf("chaves geradas,\n n:%Zx\ne:%Zx\nd:%Zx\n",n,e,d);
     printf("chave publica : (e,n)\nchave privada: (d,n)\n");
 
-    char* file_path = "/home/matheus/CLionProjects/RSA/teste.txt";
+    char file_path[FILENAME_MAX];
+
+    char current_directory[FILENAME_MAX];
+    if (getcwd(current_directory, sizeof(current_directory)) == NULL) {
+        return EXIT_FAILURE;
+    }
+        // Nome do arquivo
+    char filename[30];
+    scanf("%s",filename);
+
+    // Caminho completo
+    char full_path[FILENAME_MAX];
+    snprintf(file_path, FILENAME_MAX, "%s/%s", current_directory, filename);
+    printf("%s\n",full_path);
+    // Abre o arquivo
+    FILE *arquivo = fopen(full_path, "r");
+
+
+
+
+
     u8* sign = RSA_sign(file_path, n,d); // assina com chave privada (d,n)
     size_t message_len;
     memcpy(&message_len, sign, sizeof(message_len));
